@@ -9,6 +9,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
+      - run: pip install -e .
       - run: pip install pytest
       - run: pytest -q
 
