@@ -83,5 +83,13 @@ def main():
     print("\n=== Pipeline Simulator ===")
     print(f"Naive sum: {naive_sum} µs  |  Pipelined (8 buckets): {makespan} µs")
 
+    # MoE stats (if available)
+    if getattr(moe, "last_stats", None):
+        s = moe.last_stats
+        print(f"MoE stats: capacity={s['capacity']}  drop_rate={s['drop_rate']:.3f}  "
+              f"assigned_total={s['assigned_total']}/{s['tokens']*s['topk']}")
+        busy = sorted(enumerate(s["assigned_per_expert"]), key=lambda x: x[1], reverse=True)[:5]
+        print("Top experts by assigned tokens:", busy)
+
 if __name__ == "__main__":
     main()

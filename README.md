@@ -31,6 +31,23 @@ What you should see:
 - A **communication model** report (predicted dispatch buffer size and latency) that responds to flags,
 - A simple **3‑stage pipeline simulator** showing overlapped makespan vs. naive sum of stages.
 
+### Parameter sweep & plots
+
+Generate a small grid and write `sweep.csv`:
+
+```bash
+python experiments/sweep.py --out sweep.csv
+```
+
+Plot a simple trade‑off chart (drop rate vs buffer size):
+
+```bash
+pip install matplotlib
+python experiments/plots.py
+```
+
+You can filter the CSV by `k`, `capacity_factor`, or `int8_comms` to reproduce figures in the blog post.
+
 > The code avoids real networking so it runs anywhere, but the knobs reflect real trade‑offs: routing (top‑K),
 > capacity management, activation INT8 for comms, and overlapping stages in a pipelined schedule.
 
