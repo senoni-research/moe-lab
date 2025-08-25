@@ -18,11 +18,15 @@ def main():
     p.add_argument("--k", type=int, default=1)
     p.add_argument("--capacity-factor", type=float, default=1.0)
     p.add_argument("--drop-policy", type=str, default="drop", choices=["drop", "backup"])
+    p.add_argument("--backup-m", type=int, default=0)
     p.add_argument("--aux-alpha", type=float, default=0.01)
     p.add_argument("--int8-comms", type=str, default="false")
+    p.add_argument("--temperature", type=float, default=1.0)
+    p.add_argument("--noisy-std", type=float, default=0.0)
     p.add_argument("--batch", type=int, default=64)
     p.add_argument("--seq", type=int, default=128)
     p.add_argument("--seed", type=int, default=123)
+    p.add_argument("--buckets", type=int, default=8)
     args = p.parse_args()
 
     torch.manual_seed(args.seed)
@@ -34,10 +38,12 @@ def main():
     # Random hidden states simulate token activations after attention.
     h = torch.randn(N, d)
 
-    router = TopKRouter(d, args.n_experts, k=args.k)
+    router = TopKRouter(d, args.n_experts, k=args.k,
+                        noisy_std=args.noisy_std, temperature=args.temperature)
     moe = MoELayer(d, args.n_experts, k=args.k,
                    capacity_factor=args.capacity_factor,
-                   drop_policy=args.drop_policy)
+                   drop_policy=args.drop_policy,
+                   backup_m=args.backup_m)
 
     # Optional INT8 "comms" path (simulate quantize-dequantize around dispatch)
     def maybe_quant(x: torch.Tensor) -> torch.Tensor:
@@ -78,10 +84,14 @@ def main():
     print(f"Modeled latency ~ {lat_us:.1f} µs @ 100 GB/s + 10 µs startup")
 
     # Pipeline simulator (3-stage: quant -> copy -> write)
-    makespan = simulate_pipeline(num_buckets=8, quant_us=30, copy_us=50, write_us=60)
-    naive_sum = 30 + 50 + 60
+    quant_us, copy_us, write_us = 30, 50, 60
+    n = max(1, args.buckets)
+    per_bucket = quant_us + copy_us + write_us
+    seq = n * per_bucket
+    pipe = simulate_pipeline(num_buckets=n, quant_us=quant_us, copy_us=copy_us, write_us=write_us)
+    speedup = seq / pipe if pipe > 0 else float('inf')
     print("\n=== Pipeline Simulator ===")
-    print(f"Naive sum: {naive_sum} µs  |  Pipelined (8 buckets): {makespan} µs")
+    print(f"Sequential ({n} buckets): {seq} µs  |  Pipelined: {pipe} µs  |  Speedup: {speedup:.2f}×")
 
     # MoE stats (if available)
     if getattr(moe, "last_stats", None):

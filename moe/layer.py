@@ -10,7 +10,7 @@ class MoELayer(nn.Module):
     """
     def __init__(self, d_model: int, n_experts: int, k: int = 1,
                  d_hidden: int = None, capacity_factor: float = 1.0,
-                 drop_policy: str = "drop"):
+                 drop_policy: str = "drop", backup_m: int = 0):
         super().__init__()
         assert k >= 1 and k <= n_experts
         assert drop_policy in ("drop", "backup")
@@ -19,6 +19,7 @@ class MoELayer(nn.Module):
         self.k = k
         self.capacity_factor = capacity_factor
         self.drop_policy = drop_policy
+        self.backup_m = int(backup_m)
         self.experts = nn.ModuleList([ExpertMLP(d_model, d_hidden or 4 * d_model) for _ in range(n_experts)])
         self.last_stats: dict = {}
 
@@ -35,6 +36,14 @@ class MoELayer(nn.Module):
         d = h.shape[-1]
         cap = self._compute_capacity(N)
 
+        # Optionally extend candidate set for backup routing
+        if self.drop_policy == "backup" and self.backup_m > 0:
+            K_plus = min(self.n_experts, K + self.backup_m)
+            topk_vals_full, topk_idx_full = torch.topk(gates, k=K_plus, dim=-1)
+        else:
+            K_plus = K
+            topk_vals_full, topk_idx_full = topk_vals, topk_idx
+
         # Pack tokens for each expert
         expert_inputs = [[] for _ in range(self.n_experts)]
         token_slots = [[] for _ in range(self.n_experts)]  # (token_i, j_in_topk)
@@ -44,11 +53,11 @@ class MoELayer(nn.Module):
 
         for i in range(N):
             assigned = 0
-            for j in range(K):
-                e = int(topk_idx[i, j].item())
+            for j in range(K_plus):
+                e = int(topk_idx_full[i, j].item())
                 if len(expert_inputs[e]) < cap:
                     expert_inputs[e].append(h[i])
-                    token_slots[e].append((i, j))
+                    token_slots[e].append((i, j if j < K else (K - 1)))
                     assigned += 1
                     assigned_per_expert[e] += 1
                     assigned_total += 1
@@ -81,6 +90,7 @@ class MoELayer(nn.Module):
             "assigned_per_expert": assigned_per_expert,
             "tokens": int(N),
             "topk": int(K),
+            "topk_plus": int(K_plus),
         }
 
         return outputs, gates, topk_idx, topk_vals

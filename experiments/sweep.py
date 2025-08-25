@@ -32,7 +32,8 @@ def run_once(cfg: dict) -> dict:
                         temperature=cfg.get("temperature", 1.0))
     moe = MoELayer(cfg["d_model"], cfg["n_experts"], k=cfg["k"],
                    capacity_factor=cfg["capacity_factor"],
-                   drop_policy=cfg["drop_policy"])
+                   drop_policy=cfg["drop_policy"],
+                   backup_m=cfg.get("backup_m", 0))
 
     h = maybe_quant(h, cfg["int8_comms"])
     t0 = time.perf_counter()
@@ -51,6 +52,19 @@ def run_once(cfg: dict) -> dict:
     lat_us = latency_model(comm)
 
     s = getattr(moe, "last_stats", {})
+    # imbalance metrics
+    apx = s.get("assigned_per_expert", [])
+    total = float(sum(apx)) if apx else 0.0
+    if total > 0:
+        import math
+        p = [a / total for a in apx]
+        h = -sum(pi * math.log(pi + 1e-12) for pi in p)
+        hn = h / math.log(len(apx)) if len(apx) > 1 else 0.0
+        mean = total / len(apx)
+        var = sum((a - mean) ** 2 for a in apx) / max(1, len(apx) - 1)
+        cv = (var ** 0.5) / mean if mean > 0 else 0.0
+    else:
+        hn, cv = 0.0, 0.0
     row = dict(cfg)
     row.update({
         "aux_loss": aux,
@@ -59,6 +73,8 @@ def run_once(cfg: dict) -> dict:
         "dispatch_lat_us": lat_us,
         "drop_rate": s.get("drop_rate", 0.0),
         "assigned_total": s.get("assigned_total", 0),
+        "load_entropy": hn,
+        "load_cv": cv,
     })
     return row
 
@@ -72,7 +88,10 @@ def main():
     p.add_argument("--k", type=int, nargs="+", default=[1, 2])
     p.add_argument("--capacity-factor", type=float, nargs="+", default=[0.8, 1.0, 1.2])
     p.add_argument("--drop-policy", type=str, nargs="+", default=["drop", "backup"])
+    p.add_argument("--backup-m", type=int, nargs="+", default=[0, 2])
     p.add_argument("--aux-alpha", type=float, nargs="+", default=[0.0, 0.01])
+    p.add_argument("--temperature", type=float, nargs="+", default=[1.0])
+    p.add_argument("--noisy-std", type=float, nargs="+", default=[0.0])
     p.add_argument("--int8-comms", type=str, nargs="+", default=["false", "true"])
     p.add_argument("--batch", type=int, nargs="+", default=[32])
     p.add_argument("--seq", type=int, nargs="+", default=[64])
@@ -82,8 +101,9 @@ def main():
     args = p.parse_args()
 
     keys = [
-        "d_model", "n_experts", "k", "capacity_factor", "drop_policy", "aux_alpha",
-        "int8_comms", "batch", "seq", "ep", "experts_per_rank",
+        "d_model", "n_experts", "k", "capacity_factor", "drop_policy", "backup_m",
+        "aux_alpha", "temperature", "noisy_std", "int8_comms",
+        "batch", "seq", "ep", "experts_per_rank",
     ]
     grids = [getattr(args, k.replace("-", "_")) for k in keys]
     combos = list(itertools.product(*grids))
