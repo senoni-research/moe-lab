@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moe-lab"
+version = "0.1.0"
+description = "Minimal MoE scaffold with comms and pipeline modeling"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "moe-lab authors" }
+]
+dependencies = [
+  "torch>=2.2",
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+]
+
+[tool.setuptools]
+packages = ["moe"]
+
+[project.urls]
+Homepage = "https://example.com"
