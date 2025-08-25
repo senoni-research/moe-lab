@@ -16,3 +16,19 @@ dist/
 
 # Notebooks
 .ipynb_checkpoints/
+
+# Editors/Tools
+.vscode/
+.idea/
+.cursor/
+.python-version
+.specstory/
+
+# Outputs & logs
+logs/
+outputs/
+data/
+tmp/
+*.log
+*.pt
+*.ckpt
